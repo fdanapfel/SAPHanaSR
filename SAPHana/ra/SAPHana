@@ -16,7 +16,7 @@
 # Support:      linux@sap.com
 # License:      GNU General Public License (GPL)
 # Copyright:    (c) 2013,2014 SUSE Linux Products GmbH
-#               (c) 2015-2017 SUSE Linux GmbH
+#               (c) 2015-2019 SUSE LLC
 #
 # An example usage:
 #      See usage() function below for more details...
@@ -31,11 +31,17 @@
 #   OCF_RESKEY_DUPLICATE_PRIMARY_TIMEOUT (optional, time difference needed between two last-primary-tiemstampe (lpt))
 #   OCF_RESKEY_SAPHanaFilter    (outdated, replaced by cluster property hana_${sid}_glob_filter)
 #
+# HANA must support the following commands:
+#     hdbnsutil -sr_stateConfiguration (unsure, if this means >= SPS110, SPS111 or SPS10x)
+#     hdbnsutil -sr_takeover
+#     hdbnsutil -sr_register
+#     landscapeHostConfiguration.py
+#     systemReplicationStatus.py (>= SPS090)
 #
 #######################################################################
+SAPHanaVersion="0.153.00"
 #
 # Initialization:
-SAPHanaVersion="0.152.23"
 timeB=$(date '+%s')
 
 : ${OCF_FUNCTIONS_DIR=${OCF_ROOT}/lib/heartbeat}
