@@ -250,12 +250,12 @@ function set_hana_attribute()
         super_ocf_log debug "DBG: SET attribute $attr_name for node ${attr_node} to ${attr_value} former ($attr_old) get_rc=$get_rc "
         case "$attr_store" in
             reboot | forever )
-                echo "$dstr: SAPHanaTopology: crm_attribute -N $attr_node -v $attr_value -n \"$attr_name\" -l $attr_store" >> /var/log/fhATTRIBUTE
-                crm_attribute -N $attr_node -v $attr_value -n "$attr_name" -l $attr_store 2>>/var/log/fhATTRIBUTE; rc=$?
+                echo "$dstr: SAPHanaTopology: crm_attribute -N $attr_node -v $attr_value -n \"$attr_name\" -l $attr_store" >> $log_attr_file
+                crm_attribute -N $attr_node -v $attr_value -n "$attr_name" -l $attr_store 2>>$log_attr_file; rc=$?
                 ;;
             props )
-                echo "$dstr: SAPHanaTopology: crm_attribute -v $attr_value -n \"$attr_name\" -t crm_config -s SAPHanaSR" >> /var/log/fhATTRIBUTE
-                crm_attribute -v $attr_value -n "$attr_name" -t crm_config  -s SAPHanaSR 2>>/var/log/fhATTRIBUTE; rc=$?
+                echo "$dstr: SAPHanaTopology: crm_attribute -v $attr_value -n \"$attr_name\" -t crm_config -s SAPHanaSR" >> $log_attr_file
+                crm_attribute -v $attr_value -n "$attr_name" -t crm_config  -s SAPHanaSR 2>>$log_attr_file; rc=$?
                 ;;
         esac
     else
