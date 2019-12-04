@@ -631,8 +631,7 @@ function sht_init() {
 #
 # function: check_for_primary - check if local SAP HANA is configured as primary
 # params:   -
-# globals:  HANA_STATE_PRIMARY(r), HANA_STATE_SECONDARY(r), HANA_STATE_DEFECT(r), HANA_STATE_STANDALONE(r)
-#           srmode(r)
+# globals:  srmode(r), HANA_STATE_PRIMARY(r), HANA_STATE_SECONDARY(r), HANA_STATE_DEFECT(r), HANA_STATE_STANDALONE(r)
 #
 function check_for_primary() {
     super_ocf_log info "FLOW $FUNCNAME ($*)"
@@ -868,7 +867,7 @@ function sht_monitor_clone() {
 
 
 	if ocf_is_probe; then
-		super_ocf_log debug "DBG2: PROBE ONLY"
+		super_ocf_log debug "DBG: PROBE ONLY"
         sht_monitor; rc=$?
         local hana_version=$(HANA_CALL --timeout 10 --cmd "HDB version" \
             | awk -F':' '$1=="  version" {print $2}; ' | tr -d '[:space:]')
@@ -876,29 +875,29 @@ function sht_monitor_clone() {
             set_hana_attribute "${NODENAME}" "$hana_version" ${ATTR_NAME_HANA_VERSION[@]}
         fi
 	else
-		super_ocf_log debug "DBG2: REGULAR MONITOR"
+		super_ocf_log debug "DBG: REGULAR MONITOR"
         if ! check_saphostagent; then
              start_saphostagent
         fi
 	#
 	# First check, if we are PRIMARY or SECONDARY
 	#
-    super_ocf_log debug "DBG2: HANA SID $SID"
-    super_ocf_log debug "DBG2: HANA InstanceName $InstanceName"
-    super_ocf_log debug "DBG2: HANA InstanceNr $InstanceNr"
+    super_ocf_log debug "DBG: HANA SID $SID"
+    super_ocf_log debug "DBG: HANA InstanceName $InstanceName"
+    super_ocf_log debug "DBG: HANA InstanceNr $InstanceNr"
 	check_for_primary; primary_status=$?
     if [ $primary_status -eq $HANA_STATE_PRIMARY ]; then
         hanaPrim="P"
-        super_ocf_log debug "DBG2: HANA IS PRIMARY"
+        super_ocf_log debug "DBG: HANA IS PRIMARY"
         sht_monitor; rc=$?
     else
         if [ $primary_status -eq $HANA_STATE_SECONDARY  ]; then
             hanaPrim="S"
-            super_ocf_log debug "DBG2: HANA IS SECONDARY"
+            super_ocf_log debug "DBG: HANA IS SECONDARY"
             sht_monitor; rc=$?
         elif [ $primary_status -eq $HANA_STATE_STANDALONE  ]; then
             hanaPrim="N"
-            super_ocf_log debug "DBG2: HANA IS STANDALONE"
+            super_ocf_log debug "DBG: HANA IS STANDALONE"
             sht_monitor; rc=$?
         else
             # bsc#1027098 Do not mark HANA instance as failed, if "only" the HANA state could not be detected
@@ -1060,7 +1059,7 @@ else
     fi
 fi
 
-super_ocf_log info "RA ==== begin action $ACTION$CLACT ($SAPHanaVersion) ===="
+super_ocf_log info "RA ==== begin action $ACTION$CLACT ($SAPHanaTopologyVersion) ===="
 ra_rc=$OCF_ERR_UNIMPLEMENTED
 case "$ACTION" in
     start|stop|monitor) # Standard controling actions
@@ -1081,5 +1080,5 @@ case "$ACTION" in
 esac
 timeE=$(date '+%s')
 (( timeR = timeE - timeB ))
-super_ocf_log info "RA ==== end action $ACTION$CLACT with rc=${ra_rc} ($SAPHanaVersion) (${timeR}s)===="
+super_ocf_log info "RA ==== end action $ACTION$CLACT with rc=${ra_rc} ($SAPHanaTopologyVersion) (${timeR}s)===="
 exit ${ra_rc}
