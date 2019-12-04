@@ -26,7 +26,7 @@
 #
 #######################################################################
 # DONE PRIO 1: AFTER(!) SAP HANA SPS12 is available we could use hdbnsutil --sr_stateConfiguration
-SAPHanaTopologyVersion="0.153.00"
+SAPHanaTopologyVersion="0.153.01"
 #
 # Initialization:
 timeB=$(date '+%s')
@@ -46,6 +46,7 @@ HANA_STATE_PRIMARY=0
 HANA_STATE_SECONDARY=1
 HANA_STATE_STANDALONE=2
 HANA_STATE_DEFECT=3
+HANA_CALL_TIMEOUT=185
 
 debug_attributes=0
 SH=/bin/sh
@@ -171,6 +172,15 @@ SAPHanaTopology scans the output table of landscapeHostConfiguration.py to ident
         <shortdesc lang="en">The SAP Instance Number</shortdesc>
         <content type="string" default="" />
     </parameter>
+    <parameter name="HANA_CALL_TIMEOUT" unique="0" required="0">
+        <shortdesc lang="en">Define timeout how long a call to HANA to receive information can take.</shortdesc>
+        <longdesc lang="en">Define timeout how long a call to HANA to receive information can take. This could be eg landscapeHostConfiguration.py.
+          There are some specific calls to HANA which have their own timeout values. For example the takeover command does not timeout (inf).
+          If the timeout is reached, the return code will be 124. If you increase the timeouts for HANA calls you should also adjust the operation timeouts
+          of your cluster resources.
+        </longdesc>
+        <content type="string" default="185" />
+    </parameter>
     <parameter name="DIR_EXECUTABLE" unique="0" required="0">
         <longdesc lang="en">Path to the SAP Hana Instance executable directory. If not set the RA tries /usr/sap/\$SID/\$InstanceName/exe.
         While InstanceName is the string of "HDB" and \$InstanceNumber for SAP Hana databases.
@@ -188,7 +198,7 @@ SAPHanaTopology scans the output table of landscapeHostConfiguration.py to ident
     <action name="start" timeout="180" />
     <action name="stop" timeout="60" />
     <action name="status" timeout="60" />
-    <action name="monitor" depth="0" timeout="60" interval="60" />
+    <action name="monitor" depth="0" timeout="185" interval="60" />
     <action name="validate-all" timeout="5" />
     <action name="meta-data" timeout="5" />
     <action name="methods" timeout="5" />
@@ -412,7 +422,7 @@ function HANA_CALL()
         pre_cmd="bash -c"
         pre_script="LD_LIBRARY_PATH=$MY_LD_LIBRARY_PATH; export LD_LIBRARY_PATH"
     fi
-    case $timeout in
+    case $timeOut in
         0 | inf )
                   output=$($pre_cmd "$pre_script; /usr/sap/$SID/$InstanceName/HDBSettings.sh $cmd"); rc=$?
                   ;;
@@ -546,13 +556,13 @@ function sht_init() {
             gP ) # call getParameter (gP)
                 local gpKeys=""
                 gpKeys=$(echo --key=global.ini/system_replication/{mode,site_name,site_id})
-                hdbANSWER=$(HANA_CALL --timeout 60 --cmd "HDBSettings.sh getParameter.py $gpKeys --sapcontrol=1" 2>&1 | awk -F/ 'BEGIN {out=0} /^SAPCONTROL-OK: <begin>/ { out=1 } /^SAPCONTROL-OK: <end>/ { out=0 } /=/ {if (out==1) {print $3} }')
+                hdbANSWER=$(HANA_CALL --timeout "$HANA_CALL_TIMEOUT" --cmd "HDBSettings.sh getParameter.py $gpKeys --sapcontrol=1" 2>&1 | awk -F/ 'BEGIN {out=0} /^SAPCONTROL-OK: <begin>/ { out=1 } /^SAPCONTROL-OK: <end>/ { out=0 } /=/ {if (out==1) {print $3} }')
                 srmode=$(echo "$hdbANSWER" | awk -F= '$1=="mode" {print $2}')
                 super_ocf_log info "ACT: hdbnsutil not answering - using global.ini as fallback - srmode=$srmode"
                 ;;
             hU | * ) # call hdbnsUtil (hU) ( also for unknown chkMethod )
                 # DONE: PRIO1: Begginning from SAP HANA rev 112.03 -sr_state is not longer supported
-                hdbANSWER=$(HANA_CALL --timeout 60 --cmd "$hdbState --sapcontrol=1" 2>/dev/null)
+                hdbANSWER=$(HANA_CALL --timeout "$HANA_CALL_TIMEOUT" --cmd "$hdbState --sapcontrol=1" 2>/dev/null)
                 srmode=$(echo "$hdbANSWER" | awk -F= '$1=="mode" {print $2}')
                 ;;
         esac
@@ -576,7 +586,7 @@ function sht_init() {
     # for rev >= 111 we use the new mapping query
     #
     if version "$hdbver" ">=" "1.00.111"; then
-        hdbANSWER=$(HANA_CALL --timeout 60 --cmd "$hdbMap --sapcontrol=1" 2>/dev/null)
+        hdbANSWER=$(HANA_CALL --timeout "$HANA_CALL_TIMEOUT" --cmd "$hdbMap --sapcontrol=1" 2>/dev/null)
     fi
     MAPPING=$(echo "$hdbANSWER" | awk -F[=/] '$1 == "mapping" && $3 != site { print $4 }' site=$site)
     super_ocf_log debug "DBG: site=$site, mode=$srmode, MAPPING=$MAPPING"
@@ -931,7 +941,18 @@ function sht_monitor_clone() {
     # since rev 120 we need to use the --sapcontrol, because SAP changed the tool output
     #
     if version "$hdbver" ">=" "1.00.100"; then
-        hanaANSWER=$(HANA_CALL --timeout 60 --cmd "landscapeHostConfiguration.py --sapcontrol=1" 2>/dev/null); hanalrc="$?"
+        hanaANSWER=$(HANA_CALL --timeout "$HANA_CALL_TIMEOUT" --cmd "landscapeHostConfiguration.py --sapcontrol=1" 2>/dev/null); hanalrc="$?"
+        # retry command, if a timeout occured
+        if [ "$hanalrc" -ge 124 ]; then
+            super_ocf_log warn "HANA_CALL timed out after $HANA_CALL_TIMEOUT seconds running command 'landscapeHostConfiguration.py --sapcontrol=1'. Retrying..."
+            hanaANSWER=$(HANA_CALL --timeout "$HANA_CALL_TIMEOUT" --cmd "landscapeHostConfiguration.py --sapcontrol=1" 2>/dev/null); hanalrc="$?"
+            # if the second try again run into a timeout, log an error and do not set hanarole but keep the previous settings.
+            if [ "$hanalrc" -ge 124 ]; then
+                super_ocf_log err "HANA_CALL Operation timeout after $HANA_CALL_TIMEOUT seconds running command 'landscapeHostConfiguration.py --sapcontrol=1'."
+                setRole=false
+            fi
+        fi
+
         # TODO: PRIO9: Do we need to check the lines: 'SAPCONTROL-OK: <begin>' and 'SAPCONTROL-OK: <end>'?
         hanarole=$(echo "$hanaANSWER" | tr -d ' ' | \
             awk -F= '$1 == "nameServerConfigRole"    {f1=$2}
@@ -943,7 +964,18 @@ function sht_monitor_clone() {
         #
         # old code for backward compatability
         #
-        hanaANSWER=$(HANA_CALL --timeout 60 --cmd "landscapeHostConfiguration.py" 2>/dev/null); hanalrc="$?"
+        hanaANSWER=$(HANA_CALL --timeout "$HANA_CALL_TIMEOUT" --cmd "landscapeHostConfiguration.py" 2>/dev/null); hanalrc="$?"
+        # retry command, if a timeout occured
+        if [ "$hanalrc" -ge 124 ]; then
+            super_ocf_log warn "HANA_CALL timed out after $HANA_CALL_TIMEOUT seconds running command 'landscapeHostConfiguration.py'. Retrying..."
+            hanaANSWER=$(HANA_CALL --timeout "$HANA_CALL_TIMEOUT" --cmd "landscapeHostConfiguration.py" 2>/dev/null); hanalrc="$?"
+            # if the second try again run into a timeout, log an error and do not set hanarole but keep the previous settings.
+            if [ "$hanalrc" -ge 124 ]; then
+                super_ocf_log err "HANA_CALL Operation timeout after $HANA_CALL_TIMEOUT seconds running command 'landscapeHostConfiguration.py'."
+                setRole=false
+            fi
+        fi
+
         hanarole=$(echo "$hanaANSWER" | tr -d ' ' | awk -F'|' '$2 == host {  printf "%s:%s:%s:%s\n",$10,$11,$12,$13 }  ' host=${vName})
     fi
     #if [ -z "$MAPPING" ]; then

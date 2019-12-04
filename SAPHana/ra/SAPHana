@@ -39,7 +39,7 @@
 #     systemReplicationStatus.py (>= SPS090)
 #
 #######################################################################
-SAPHanaVersion="0.153.00"
+SAPHanaVersion="0.153.01"
 #
 # Initialization:
 timeB=$(date '+%s')
@@ -61,6 +61,7 @@ HANA_STATE_PRIMARY=0
 HANA_STATE_SECONDARY=1
 HANA_STATE_STANDALONE=2
 HANA_STATE_DEFECT=3
+HANA_CALL_TIMEOUT=185
 
 debug_attributes=0
 
@@ -240,6 +241,15 @@ The resource agent uses the following four interfaces provided by SAP:
         </longdesc>
         <content type="string" default="7200" />
     </parameter>
+    <parameter name="HANA_CALL_TIMEOUT" unique="0" required="0">
+        <shortdesc lang="en">Define timeout how long a call to HANA to receive information can take.</shortdesc>
+        <longdesc lang="en">Define timeout how long a call to HANA to receive information can take. This could be eg landscapeHostConfiguration.py.
+          There are some specific calls to HANA which have their own timeout values. For example the takeover command does not timeout (inf).
+          If the timeout is reached, the return code will be 124. If you increase the timeouts for HANA calls you should also adjust the operation timeouts
+          of your cluster resources.
+        </longdesc>
+        <content type="string" default="185" />
+    </parameter>
     <parameter name="DIR_EXECUTABLE" unique="0" required="0">
         <longdesc lang="en">The full qualified path where to find sapstartsrv and sapcontrol. Specify this parameter, if you have changed the SAP kernel directory location after the default SAP installation.</longdesc>
         <shortdesc lang="en">Path of sapstartsrv and sapcontrol</shortdesc>
@@ -266,9 +276,9 @@ The resource agent uses the following four interfaces provided by SAP:
     <action name="start"   timeout="180" />
     <action name="stop"    timeout="240" />
     <action name="status"  timeout="60" />
-    <action name="monitor" depth="0" timeout="60" interval="120" />
-    <action name="monitor" depth="0" timeout="60" interval="121" role="Slave" />
-    <action name="monitor" depth="0" timeout="60" interval="119" role="Master" />
+    <action name="monitor" depth="0" timeout="185" interval="120" />
+    <action name="monitor" depth="0" timeout="185" interval="121" role="Slave" />
+    <action name="monitor" depth="0" timeout="185" interval="119" role="Master" />
     <action name="promote" timeout="320" />
     <action name="demote"  timeout="320" />
     <action name="validate-all" timeout="5" />
@@ -640,7 +650,7 @@ function HANA_CALL()
                       local second_output=""
                       second_output=$($pre_cmd "$pre_script; /usr/sap/$SID/$InstanceName/HDBSettings.sh $onTimeOut");
                   fi
-                  ;;
+                 ;;
     esac
     super_ocf_log debug "DBG: HANA_CALL '$cmd' rc=$rc output=$output"
     echo "$output"
@@ -987,13 +997,13 @@ function check_for_primary() {
            gP )
                 local gpKeys=""
                 gpKeys=$(echo --key=global.ini/system_replication/{mode,site_name,site_id})
-                node_full_status=$(HANA_CALL --timeout 60 --cmd "HDBSettings.sh getParameter.py $gpKeys --sapcontrol=1" 2>&1 | awk -F/ 'BEGIN {out=0} /^SAPCONTROL-OK: <begin>/ { out=1 } /^SAPCONTROL-OK: <end>/ { out=0 } /=/ {if (out==1) {print $3} }')
+                node_full_status=$(HANA_CALL --timeout "$HANA_CALL_TIMEOUT" --cmd "HDBSettings.sh getParameter.py $gpKeys --sapcontrol=1" 2>&1 | awk -F/ 'BEGIN {out=0} /^SAPCONTROL-OK: <begin>/ { out=1 } /^SAPCONTROL-OK: <end>/ { out=0 } /=/ {if (out==1) {print $3} }')
                 node_status=$(echo "$node_full_status" | awk -F= '$1=="mode" {print $2}')
                 super_ocf_log info "ACT: Using getParameter.py as fallback - node_status=$node_status"
                 ;;
            hU | * )
                 # DONE: PRIO1: Begginning from SAP HANA rev 112.03 -sr_state is not longer supported
-                node_full_status=$(HANA_CALL --timeout 60 --cmd "$hdbState" 2>/dev/null )
+                node_full_status=$(HANA_CALL --timeout "$HANA_CALL_TIMEOUT" --cmd "$hdbState" 2>/dev/null )
                 node_status=$(echo "$node_full_status" | awk '$1=="mode:" {print $2}')
                 super_ocf_log debug "DBG: check_for_primary: node_status=$node_status"
                 ;;
@@ -1173,7 +1183,7 @@ function analyze_hana_sync_statusSQL()
 }
 
 #
-# function: get_hana_landscape_status - figure out hana ladscape status
+# function: get_hana_landscape_status - figure out hana landscape status
 # params:   -
 # globals:  sidadm(r), DIR_EXECUTABLE(r)
 #
@@ -1186,12 +1196,12 @@ function get_hana_landscape_status()
     # SAPSYSTEMNAME=SLE /usr/sap/SLE/HDB00/HDBSettings.sh landscapeHostConfiguration.py
     # TODO: Check beginning from which SPS does SAP support HDBSettings.sh?
     # DONE: Limit the runtime of landscapeHostConfiguration.py
-    HANA_CALL --timeout 60 --cmd "landscapeHostConfiguration.py" 1>/dev/null 2>/dev/null; rc=$?
+    HANA_CALL --timeout "$HANA_CALL_TIMEOUT" --cmd "landscapeHostConfiguration.py" 1>/dev/null 2>/dev/null; rc=$?
     if [ $rc -eq 124 ]; then
         # TODO: PRIO 1: Check, if we should loop here like 'for i in 1 2 3 ...' ?
         # landscape timeout
         sleep 20
-        HANA_CALL --timeout 60 --cmd "landscapeHostConfiguration.py" 1>/dev/null 2>/dev/null; rc=$?
+        HANA_CALL --timeout "$HANA_CALL_TIMEOUT" --cmd "landscapeHostConfiguration.py" 1>/dev/null 2>/dev/null; rc=$?
         if [ $rc -eq 124 ]; then
            # TODO PRIO2: How to handle still hanging lss - current solution is to say "FATAL"
            rc=0
