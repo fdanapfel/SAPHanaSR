@@ -390,6 +390,7 @@ function HANA_CALL()
     #
     # TODO: PRIO 5: remove 'su - ${sidadm} later, when SAP HANA resoled issue with
     #       root-user-called hdbnsutil -sr_state (which creates root-owned shared memory file in /var/lib/hdb/SID/shmgrp)
+    #       would hdbnsutil -sr_stateConfiguration also create such a shared memory file?
     # TODO: PRIO 5: Maybe make "su" optional by a parameter
     local timeOut=0
     local onTimeOut=""
@@ -438,7 +439,7 @@ function HANA_CALL()
                       local second_output=""
                       second_output=$($pre_cmd "$pre_script; /usr/sap/$SID/$InstanceName/HDBSettings.sh $onTimeOut");
                   fi
-                  ;;
+                 ;;
     esac
     super_ocf_log debug "DBG: HANA_CALL '$cmd' rc=$rc output=$output"
     echo "$output"
@@ -495,9 +496,13 @@ function sht_init() {
     # new "central" attributes
     #
     ATTR_NAME_HANA_FILTER=("hana_${sid}_glob_filter" "props" "ra-act-dec-lpa")
+    #
+    # SITE based attributes
+    #
+    ATTR_NAME_HANA_SEC_SYNC_SRHOOK=("hana_${sid}_site_sec_sync_state" "props")   # SOK, SFAIL
     # optional OCF parameters, we try to guess which directories are correct
 
-    SAPHanaFilter=$(get_hana_attribute "X" ${ATTR_NAME_HANA_FILTER[@]})
+    SAPHanaFilter=$(get_hana_attribute "X" "${ATTR_NAME_HANA_FILTER[@]}")
 
     if  [ -z "$OCF_RESKEY_DIR_EXECUTABLE" ]
     then
@@ -518,8 +523,7 @@ function sht_init() {
         DIR_PROFILE="$OCF_RESKEY_DIR_PROFILE"
     fi
 
-
-    PATH=${PATH}:${DIR_EXECUTABLE}
+    #PATH=${PATH}:${DIR_EXECUTABLE}
     #
     # figure-out all needed values from system replication status with ONE call
     # we need: mode=primary|sync|syncmem|...; site name=<site>; mapping/<me>=<site>/<node> (multiple lines)
@@ -940,6 +944,7 @@ function sht_monitor_clone() {
     # we begin to use --sapcontrol with rev 100
     # since rev 120 we need to use the --sapcontrol, because SAP changed the tool output
     #
+    setRole=true
     if version "$hdbver" ">=" "1.00.100"; then
         hanaANSWER=$(HANA_CALL --timeout "$HANA_CALL_TIMEOUT" --cmd "landscapeHostConfiguration.py --sapcontrol=1" 2>/dev/null); hanalrc="$?"
         # retry command, if a timeout occured
@@ -985,7 +990,9 @@ function sht_monitor_clone() {
     if [ -n "$hanaRemoteHost" ]; then
         set_hana_attribute ${NODENAME} "$hanaRemoteHost" ${ATTR_NAME_HANA_REMOTEHOST[@]}
     fi
-    set_hana_attribute ${NODENAME} "$hanalrc:$hanaPrim:$hanarole" ${ATTR_NAME_HANA_ROLES[@]}
+    if $setRole; then
+        set_hana_attribute ${NODENAME} "$hanalrc:$hanaPrim:$hanarole" ${ATTR_NAME_HANA_ROLES[@]}
+    fi
     if [ -n "$site" ]; then
         set_hana_attribute ${NODENAME} "$site" ${ATTR_NAME_HANA_SITE[@]}
     fi
